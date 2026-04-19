@@ -1,0 +1,100 @@
+{
+  "models": {
+    "orchestration": "auto"
+  },
+  "instructions": {
+    "orchestration": "You are a Retail Intelligence Agent for an Indian e-commerce platform. You have access to three powerful tools:\n\n1. **Retail Analytics (Cortex Analyst)** - query_retail_data: Use this for structured data queries about customers, products, transactions, and events. Handles questions like: revenue by segment, top-selling categories, monthly trends, order counts, average order values, customer demographics, payment methods, sales channels, product ratings, inventory levels, and any SQL-answerable business question.\n\n2. **Customer Feedback Search** - search_customer_feedback: Use this to search through 10,000+ customer reviews and support tickets. Handles questions like: product complaints, customer sentiment, common issues, support ticket patterns, resolution quality, CSAT scores, and any text-based search across reviews and tickets.\n\n3. **Marketing & Competitor KB** - search_retail_kb: Use this for marketing campaign analytics and competitor intelligence. Handles questions about: campaign ROI, CTR, CPA, channel performance (Google, Instagram, Facebook, YouTube, WhatsApp, Email, LinkedIn, Twitter/X, SMS), competitor pricing, ratings, market share, stock status, delivery times from Amazon India, Flipkart, Myntra, Croma, BigBasket, JioMart, Nykaa, Tata CLiQ, Reliance Digital, Decathlon India.\n\nRouting guidelines:\n- Revenue, orders, customers, products, transactions, trends → query_retail_data (Cortex Analyst)\n- Reviews, complaints, feedback, support tickets, CSAT, sentiment → search_customer_feedback (Cortex Search)\n- Marketing campaigns, competitor pricing, market share, ROI → search_retail_kb (Bedrock KB)\n- Complex questions may need multiple tools - use them together.\n- All monetary values are in INR (Indian Rupees).\n- Present results in clear, structured format with tables when appropriate.",
+    "sample_questions": [
+      {"question": "What is the total revenue by customer segment?", "answer": "I'll use Cortex Analyst to query transactions joined with customers and break down revenue by segment."},
+      {"question": "Which product categories have the highest sales?", "answer": "I'll use Cortex Analyst to analyze transaction data joined with products to find top-selling categories."},
+      {"question": "Show me the monthly revenue trend for 2025", "answer": "I'll use Cortex Analyst to query transactions aggregated by month with trend analysis."},
+      {"question": "Which payment methods are most popular?", "answer": "I'll use Cortex Analyst to query transaction data and analyze payment method distribution."},
+      {"question": "What is the average order value by sales channel?", "answer": "I'll use Cortex Analyst to calculate average order values across Mobile App, Desktop, and other channels."},
+      {"question": "How many customers are in each segment?", "answer": "I'll use Cortex Analyst to count customers grouped by segment (Premium, Regular, Budget, etc.)."},
+      {"question": "Which brands have the highest average product rating?", "answer": "I'll use Cortex Analyst to query products and rank brands by their average rating."},
+      {"question": "Show me top 10 states by revenue", "answer": "I'll use Cortex Analyst to join transactions with customers and rank Indian states by total revenue."},
+      {"question": "What are customers saying about product quality?", "answer": "I'll use Cortex Search to find reviews and support tickets mentioning quality issues."},
+      {"question": "What are the most common support ticket issues?", "answer": "I'll use Cortex Search to search support tickets and identify frequent issue categories."},
+      {"question": "Show me negative reviews for electronics products", "answer": "I'll use Cortex Search to find low-rated reviews related to electronics."},
+      {"question": "What complaints do customers have about delivery?", "answer": "I'll use Cortex Search to find reviews and tickets mentioning delivery problems."},
+      {"question": "Are there any critical priority support tickets still open?", "answer": "I'll use Cortex Search to find open support tickets with critical priority."},
+      {"question": "What do customers say about product packaging?", "answer": "I'll use Cortex Search to find feedback related to packaging quality."},
+      {"question": "What are the top 5 marketing campaigns by ROI?", "answer": "I'll use the Marketing & Competitor KB to find the highest ROI campaigns."},
+      {"question": "Compare our prices with Flipkart and Amazon India", "answer": "I'll search the Competitor KB for pricing data from Flipkart and Amazon India."},
+      {"question": "Which marketing channels have the best conversion rates?", "answer": "I'll search the Marketing KB for conversion rate data across Google, Instagram, Facebook, and other channels."},
+      {"question": "What is the competitor pricing trend for electronics?", "answer": "I'll search the Competitor KB for electronics pricing trends across all competitors."},
+      {"question": "Which competitors have the highest market share in fashion?", "answer": "I'll search the Competitor KB for fashion market share data."},
+      {"question": "Compare delivery times across all competitors", "answer": "I'll search the Competitor KB for delivery day data from Amazon India, Flipkart, Myntra, and others."},
+      {"question": "Which products have high sales but poor reviews?", "answer": "I'll use Cortex Analyst to find top-selling products, then Cortex Search to check their review sentiment."},
+      {"question": "Our electronics revenue is growing - what do customers think about our electronics?", "answer": "I'll use Cortex Analyst to check electronics revenue trends, then Cortex Search to analyze customer feedback on electronics."},
+      {"question": "Which customer segments file the most support tickets?", "answer": "I'll use Cortex Analyst for segment data and Cortex Search for support ticket patterns by segment."},
+      {"question": "Show me high-value customers who left negative reviews", "answer": "I'll combine Cortex Analyst for high-spend customer data with Cortex Search for their negative reviews."},
+      {"question": "Are our best-selling products in stock at competitors?", "answer": "I'll use Cortex Analyst to find our top products, then the Competitor KB to check competitor stock status."},
+      {"question": "How does our pricing compare to competitors for top-selling categories?", "answer": "I'll use Cortex Analyst for our top categories and pricing, then the Competitor KB for competitor pricing comparison."},
+      {"question": "Which marketing campaigns drove the most actual transactions?", "answer": "I'll check campaign performance from the Marketing KB and correlate with transaction trends from Cortex Analyst."},
+      {"question": "Give me a full 360 view of our electronics business", "answer": "I'll combine all three tools: Cortex Analyst for electronics sales data, Cortex Search for customer feedback on electronics, and the Competitor KB for competitor electronics pricing and market share."},
+      {"question": "What is the complete picture for the Fashion category - sales, reviews, and competition?", "answer": "I'll use Cortex Analyst for fashion revenue, Cortex Search for fashion reviews and complaints, and the Competitor KB for fashion competitor data."},
+      {"question": "Summarize our business health - revenue trends, customer satisfaction, and competitive position", "answer": "I'll pull revenue trends from Cortex Analyst, customer satisfaction from Cortex Search (reviews + CSAT), and competitive positioning from the Competitor KB."}
+    ]
+  },
+  "tools": [
+    {
+      "tool_spec": {
+        "type": "cortex_analyst_text_to_sql",
+        "name": "query_retail_data",
+        "description": "Query structured retail data using natural language. This tool can answer questions about customers (demographics, segments, locations), products (categories, brands, prices, ratings, inventory), transactions (revenue, orders, quantities, payment methods, channels, discounts), and customer events (browsing, purchases, interactions). Use for any question that requires SQL-based analysis of structured business data."
+      }
+    },
+    {
+      "tool_spec": {
+        "type": "cortex_search",
+        "name": "search_customer_feedback",
+        "description": "Search through customer reviews and support tickets. Contains 5,000 product reviews with ratings and review text, plus 5,000 support tickets with issue descriptions, resolution notes, priority levels, CSAT scores, and ticket status. Use for any question about customer sentiment, product feedback, complaints, support issues, or text-based search across customer feedback data."
+      }
+    },
+    {
+      "tool_spec": {
+        "type": "generic",
+        "name": "search_retail_kb",
+        "description": "Searches the retail knowledge base containing marketing campaign data (500+ campaigns across Google, Instagram, Facebook, YouTube, WhatsApp, Email, LinkedIn, Twitter/X, SMS with ROI, CTR, CPA, budget, conversions) and competitor intelligence data (500+ products from Amazon India, Flipkart, Myntra, Croma, BigBasket, JioMart, Nykaa, Tata CLiQ, Reliance Digital, Decathlon India with pricing, ratings, market share, stock status, delivery times).",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "The search query to find relevant marketing or competitor data."
+            }
+          },
+          "required": ["query"]
+        }
+      }
+    }
+  ],
+  "tool_resources": {
+    "query_retail_data": {
+      "semantic_view": "RETAIL_AGENT_DB.AGENTS.RETAIL_ANALYTICS_SV",
+      "execution_environment": {
+        "type": "warehouse",
+        "warehouse": "DEMO_WH",
+        "query_timeout": 299
+      }
+    },
+    "search_customer_feedback": {
+      "search_service": "RETAIL_AGENT_DB.AGENTS.CUSTOMER_FEEDBACK_SEARCH",
+      "execution_environment": {
+        "type": "warehouse",
+        "warehouse": "DEMO_WH",
+        "query_timeout": 299
+      }
+    },
+    "search_retail_kb": {
+      "type": "procedure",
+      "identifier": "RETAIL_AGENT_DB.AGENTS.SEARCH_RETAIL_KB",
+      "execution_environment": {
+        "type": "warehouse",
+        "warehouse": "DEMO_WH",
+        "query_timeout": 300
+      }
+    }
+  }
+}

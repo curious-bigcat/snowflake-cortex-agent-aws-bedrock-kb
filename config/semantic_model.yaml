@@ -1,0 +1,227 @@
+name: RETAIL_ANALYTICS_SV
+description: Retail 360 analytics model for an Indian e-commerce platform. Covers
+  customer demographics and segments, product catalog with pricing in INR, sales transactions
+  across multiple channels, and customer behavioral events. Key metrics include revenue,
+  order count, average order value, and customer counts across segments, regions,
+  categories, and time periods.
+tables:
+  - name: CUSTOMERS
+    base_table:
+      database: RETAIL_AGENT_DB
+      schema: AGENTS
+      table: CUSTOMERS
+    primary_key:
+      columns:
+        - CUSTOMER_ID
+    dimensions:
+      - name: CUSTOMER_ID
+        expr: CUSTOMER_ID
+        data_type: VARCHAR
+      - name: FIRST_NAME
+        expr: FIRST_NAME
+        data_type: VARCHAR
+      - name: LAST_NAME
+        expr: LAST_NAME
+        data_type: VARCHAR
+      - name: FULL_NAME
+        expr: FULL_NAME
+        data_type: VARCHAR
+      - name: GENDER
+        expr: GENDER
+        data_type: VARCHAR
+      - name: EMAIL
+        expr: EMAIL
+        data_type: VARCHAR
+      - name: PHONE
+        expr: PHONE
+        data_type: VARCHAR
+      - name: STATE
+        expr: STATE
+        data_type: VARCHAR
+      - name: CITY
+        expr: CITY
+        data_type: VARCHAR
+      - name: CUSTOMER_SEGMENT
+        expr: CUSTOMER_SEGMENT
+        data_type: VARCHAR
+      - name: STATUS
+        expr: STATUS
+        data_type: VARCHAR
+    time_dimensions:
+      - name: DATE_OF_BIRTH
+        expr: DATE_OF_BIRTH
+        data_type: DATE
+      - name: REGISTRATION_DATE
+        expr: REGISTRATION_DATE
+        data_type: DATE
+  - name: PRODUCTS
+    base_table:
+      database: RETAIL_AGENT_DB
+      schema: AGENTS
+      table: PRODUCTS
+    primary_key:
+      columns:
+        - PRODUCT_ID
+    dimensions:
+      - name: PRODUCT_ID
+        expr: PRODUCT_ID
+        data_type: VARCHAR
+      - name: PRODUCT_NAME
+        expr: PRODUCT_NAME
+        data_type: VARCHAR
+      - name: CATEGORY
+        expr: CATEGORY
+        data_type: VARCHAR
+      - name: SUB_CATEGORY
+        expr: SUB_CATEGORY
+        data_type: VARCHAR
+      - name: BRAND
+        expr: BRAND
+        data_type: VARCHAR
+      - name: STOCK_STATUS
+        expr: STOCK_STATUS
+        data_type: VARCHAR
+      - name: SHIPPING_TYPE
+        expr: SHIPPING_TYPE
+        data_type: VARCHAR
+      - name: INVENTORY_COUNT
+        expr: INVENTORY_COUNT
+        data_type: NUMBER
+    facts:
+      - name: PRICE_INR
+        expr: PRICE_INR
+        data_type: NUMBER
+      - name: RATING
+        expr: RATING
+        data_type: NUMBER
+  - name: TRANSACTIONS
+    base_table:
+      database: RETAIL_AGENT_DB
+      schema: AGENTS
+      table: TRANSACTIONS
+    dimensions:
+      - name: TRANSACTION_ID
+        expr: TRANSACTION_ID
+        data_type: VARCHAR
+      - name: CUSTOMER_ID
+        expr: CUSTOMER_ID
+        data_type: VARCHAR
+      - name: PRODUCT_ID
+        expr: PRODUCT_ID
+        data_type: VARCHAR
+      - name: QUANTITY
+        expr: QUANTITY
+        data_type: NUMBER
+      - name: ORDER_STATUS
+        expr: ORDER_STATUS
+        data_type: VARCHAR
+      - name: PAYMENT_METHOD
+        expr: PAYMENT_METHOD
+        data_type: VARCHAR
+      - name: CHANNEL
+        expr: CHANNEL
+        data_type: VARCHAR
+      - name: DISCOUNT_PERCENT
+        expr: DISCOUNT_PERCENT
+        data_type: NUMBER
+    time_dimensions:
+      - name: TRANSACTION_DATE
+        expr: TRANSACTION_DATE
+        data_type: DATE
+    facts:
+      - name: UNIT_PRICE
+        expr: UNIT_PRICE
+        data_type: NUMBER
+      - name: TOTAL_AMOUNT
+        expr: TOTAL_AMOUNT
+        data_type: NUMBER
+  - name: CUSTOMER_EVENTS
+    base_table:
+      database: RETAIL_AGENT_DB
+      schema: AGENTS
+      table: CUSTOMER_EVENTS
+    primary_key:
+      columns:
+        - EVENT_ID
+    dimensions:
+      - name: EVENT_ID
+        expr: EVENT_ID
+        data_type: VARCHAR
+      - name: CUSTOMER_ID
+        expr: CUSTOMER_ID
+        data_type: VARCHAR
+      - name: EVENT_TYPE
+        expr: EVENT_TYPE
+        data_type: VARCHAR
+      - name: EVENT_DATA
+        expr: EVENT_DATA
+        data_type: VARIANT
+    time_dimensions:
+      - name: EVENT_TIMESTAMP
+        expr: EVENT_TIMESTAMP
+        data_type: TIMESTAMP_LTZ
+relationships:
+  - name: TRANSACTIONS_TO_CUSTOMERS
+    left_table: TRANSACTIONS
+    right_table: CUSTOMERS
+    join_type: inner
+    relationship_type: many_to_one
+    relationship_columns:
+      - left_column: CUSTOMER_ID
+        right_column: CUSTOMER_ID
+  - name: TRANSACTIONS_TO_PRODUCTS
+    left_table: TRANSACTIONS
+    right_table: PRODUCTS
+    join_type: inner
+    relationship_type: many_to_one
+    relationship_columns:
+      - left_column: PRODUCT_ID
+        right_column: PRODUCT_ID
+  - name: CUSTOMER_EVENTS_TO_CUSTOMERS
+    left_table: CUSTOMER_EVENTS
+    right_table: CUSTOMERS
+    join_type: inner
+    relationship_type: many_to_one
+    relationship_columns:
+      - left_column: CUSTOMER_ID
+        right_column: CUSTOMER_ID
+verified_queries:
+  - name: revenue_by_segment
+    question: What is the revenue breakdown by customer segment?
+    sql: SELECT c.CUSTOMER_SEGMENT, COUNT(DISTINCT t.CUSTOMER_ID) AS customer_count,
+      SUM(t.TOTAL_AMOUNT) AS total_revenue, AVG(t.TOTAL_AMOUNT) AS avg_order_value
+      FROM transactions AS t JOIN customers AS c ON t.CUSTOMER_ID = c.CUSTOMER_ID
+      GROUP BY c.CUSTOMER_SEGMENT ORDER BY total_revenue DESC
+    verified_at: 1776588809
+    verified_by: Semantic Model Generator
+  - name: top_categories_brands
+    question: What are the top selling product categories and brands by total sales
+      revenue?
+    sql: SELECT p.CATEGORY, p.BRAND, COUNT(t.TRANSACTION_ID) AS order_count, SUM(t.TOTAL_AMOUNT)
+      AS total_sales, AVG(p.RATING) AS avg_rating FROM transactions AS t JOIN products
+      AS p ON t.PRODUCT_ID = p.PRODUCT_ID GROUP BY p.CATEGORY, p.BRAND ORDER BY total_sales
+      DESC
+    verified_at: 1776588809
+    verified_by: Semantic Model Generator
+  - name: revenue_by_channel_payment
+    question: What is the revenue and order count by sales channel and payment method?
+    sql: SELECT t.CHANNEL, t.PAYMENT_METHOD, COUNT(t.TRANSACTION_ID) AS order_count,
+      SUM(t.TOTAL_AMOUNT) AS total_revenue FROM transactions AS t GROUP BY t.CHANNEL,
+      t.PAYMENT_METHOD ORDER BY total_revenue DESC
+    verified_at: 1776588809
+    verified_by: Semantic Model Generator
+  - name: revenue_by_state_city
+    question: Which states and cities generate the most revenue?
+    sql: SELECT c.STATE, c.CITY, COUNT(DISTINCT t.CUSTOMER_ID) AS customers, SUM(t.TOTAL_AMOUNT)
+      AS revenue FROM transactions AS t JOIN customers AS c ON t.CUSTOMER_ID = c.CUSTOMER_ID
+      GROUP BY c.STATE, c.CITY ORDER BY revenue DESC
+    verified_at: 1776588809
+    verified_by: Semantic Model Generator
+  - name: monthly_revenue_trend
+    question: What are the monthly trends for revenue, order volume, and average discount
+      rates?
+    sql: SELECT DATE_TRUNC('MONTH', t.TRANSACTION_DATE) AS month, COUNT(t.TRANSACTION_ID)
+      AS orders, SUM(t.TOTAL_AMOUNT) AS revenue, AVG(t.DISCOUNT_PERCENT) AS avg_discount
+      FROM transactions AS t GROUP BY month ORDER BY month
+    verified_at: 1776588809
+    verified_by: Semantic Model Generator

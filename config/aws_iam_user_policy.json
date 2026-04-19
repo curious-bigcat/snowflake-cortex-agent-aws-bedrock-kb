@@ -1,0 +1,39 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "BedrockKBAccess",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock:Retrieve",
+        "bedrock:RetrieveAndGenerate",
+        "bedrock:InvokeModel"
+      ],
+      "Resource": [
+        "arn:aws:bedrock:us-west-2:<YOUR_AWS_ACCOUNT_ID>:knowledge-base/*",
+        "arn:aws:bedrock:us-west-2::foundation-model/*"
+      ]
+    },
+    {
+      "Sid": "S3BucketAccess",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:ListBucket",
+        "s3:PutObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::<YOUR_S3_BUCKET_NAME>",
+        "arn:aws:s3:::<YOUR_S3_BUCKET_NAME>/*"
+      ]
+    },
+    {
+      "Sid": "AOSSAccess",
+      "Effect": "Allow",
+      "Action": [
+        "aoss:APIAccessAll"
+      ],
+      "Resource": "arn:aws:aoss:us-west-2:<YOUR_AWS_ACCOUNT_ID>:collection/*"
+    }
+  ]
+}
