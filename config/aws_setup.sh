@@ -1,15 +1,18 @@
 #!/bin/bash
 ###############################################################################
-# AWS Setup Script for Retail Intelligence Agent - Bedrock Knowledge Base
+# AWS Setup Script — Bedrock Knowledge Base with S3 Data Source
 #
-# This script sets up:
-#   1. S3 bucket for KB data (marketing campaigns + competitor intelligence CSVs)
+# Creates the full AWS infrastructure for a Bedrock KB that Snowflake can call:
+#   1. S3 bucket for KB data (upload any CSV/PDF/TXT files)
 #   2. IAM role with trust policy for Amazon Bedrock
 #   3. IAM policy for the role to access S3, AOSS, Bedrock
 #   4. OpenSearch Serverless (AOSS) collection with security policies
-#   5. AOSS vector index
+#   5. AOSS vector index (Titan Embed v2, 1024 dims, HNSW/faiss)
 #   6. Bedrock Knowledge Base with S3 data source
-#   7. Data source sync
+#   7. Data source sync (chunks + embeds your documents)
+#
+# This script is DOMAIN-AGNOSTIC. The included example uploads retail
+# e-commerce CSVs, but you can upload any documents to S3.
 #
 # Prerequisites:
 #   - AWS CLI v2 installed and configured
@@ -30,17 +33,17 @@ set -euo pipefail
 AWS_ACCOUNT_ID="<YOUR_AWS_ACCOUNT_ID>"          # e.g., 484577546576
 AWS_REGION="us-west-2"
 AWS_IAM_USER="<YOUR_IAM_USERNAME>"               # e.g., bharaths
-S3_BUCKET_NAME="retail-agent-kb-data-${AWS_IAM_USER}"
-IAM_ROLE_NAME="BedrockKBRetailRole"
-AOSS_COLLECTION_NAME="retail-kb-collection"
+S3_BUCKET_NAME="bedrock-kb-data-${AWS_IAM_USER}"
+IAM_ROLE_NAME="BedrockKBRole"
+AOSS_COLLECTION_NAME="bedrock-kb-collection"
 AOSS_INDEX_NAME="bedrock-knowledge-base-default-index"
-KB_NAME="retail-intelligence-kb"
-KB_DESCRIPTION="Retail Intelligence KB - Marketing campaigns and competitor data"
+KB_NAME="cortex-agent-kb"
+KB_DESCRIPTION="Bedrock Knowledge Base for Snowflake Cortex Agent"
 EMBEDDING_MODEL_ARN="arn:aws:bedrock:${AWS_REGION}::foundation-model/amazon.titan-embed-text-v2:0"
-DATA_DIR="../data"  # Directory containing marketing_campaigns.csv and competitor_intelligence.csv
+DATA_DIR="../data"  # Directory containing your documents (CSVs, PDFs, etc.)
 
 echo "============================================"
-echo "Retail Intelligence Agent - AWS Setup"
+echo "Bedrock Knowledge Base - AWS Setup"
 echo "============================================"
 echo "Account: ${AWS_ACCOUNT_ID}"
 echo "Region:  ${AWS_REGION}"
@@ -48,13 +51,13 @@ echo "Bucket:  ${S3_BUCKET_NAME}"
 echo ""
 
 # ============================================================================
-# STEP 1: Create S3 Bucket and Upload CSVs
+# STEP 1: Create S3 Bucket and Upload Documents
 # ============================================================================
 echo "[Step 1/7] Creating S3 bucket and uploading data..."
 
 aws s3 mb "s3://${S3_BUCKET_NAME}" --region "${AWS_REGION}" 2>/dev/null || echo "  Bucket already exists, continuing..."
 
-# Upload CSV files
+# Upload documents to S3 (example: retail CSVs — replace with your own files)
 if [ -f "${DATA_DIR}/marketing_campaigns.csv" ]; then
     aws s3 cp "${DATA_DIR}/marketing_campaigns.csv" "s3://${S3_BUCKET_NAME}/marketing_campaigns.csv"
     echo "  Uploaded marketing_campaigns.csv"
@@ -116,7 +119,7 @@ EOF
 
 aws iam put-role-policy \
     --role-name "${IAM_ROLE_NAME}" \
-    --policy-name "BedrockKBRetailPolicy" \
+    --policy-name "BedrockKBPolicy" \
     --policy-document "${ROLE_POLICY}"
 
 echo "  IAM role setup complete."
@@ -152,7 +155,7 @@ aws opensearchserverless create-access-policy \
 COLLECTION_RESPONSE=$(aws opensearchserverless create-collection \
     --name "${AOSS_COLLECTION_NAME}" \
     --type "VECTORSEARCH" \
-    --description "Vector store for Retail Intelligence KB" \
+    --description "Vector store for Bedrock Knowledge Base" \
     2>/dev/null || echo "{}")
 
 echo "  Waiting for AOSS collection to become ACTIVE (this takes 2-5 minutes)..."
@@ -284,8 +287,8 @@ echo "[Step 6/7] Creating data source and syncing..."
 
 DS_RESPONSE=$(aws bedrock-agent create-data-source \
     --knowledge-base-id "${KB_ID}" \
-    --name "retail-s3-data" \
-    --description "S3 data source with marketing and competitor CSVs" \
+    --name "s3-data-source" \
+    --description "S3 data source for Bedrock Knowledge Base" \
     --data-source-configuration "{
         \"type\": \"S3\",
         \"s3Configuration\": {
@@ -328,7 +331,7 @@ echo "NEXT STEPS:"
 echo "  1. Wait for data source sync to complete (~2-5 min)"
 echo "     aws bedrock-agent list-ingestion-jobs --knowledge-base-id ${KB_ID} --data-source-id ${DS_ID}"
 echo ""
-echo "  2. Update the KB_ID in config/snowflake_setup.sql (SEARCH_RETAIL_KB procedure)"
+echo "  2. Update the KB_ID in config/snowflake_setup.sql (stored procedure)"
 echo "     Replace '<YOUR_BEDROCK_KB_ID>' with: ${KB_ID}"
 echo ""
 echo "  3. Proceed to Snowflake setup: config/snowflake_setup.sql"

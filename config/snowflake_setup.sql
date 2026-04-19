@@ -1,14 +1,24 @@
 -------------------------------------------------------------------------------
--- Snowflake Setup Script for Retail Intelligence Agent
+-- Snowflake Setup Script — Cortex Agent with AWS Bedrock KB Integration
 --
--- This script creates ALL Snowflake objects needed for the Retail Intelligence
--- Agent. Run sections in order. Some sections require manual steps (noted).
+-- Creates ALL Snowflake objects for a multi-tool Cortex Agent that combines:
+--   - Cortex Analyst (text-to-SQL via Semantic View)
+--   - Cortex Search (vector search over text)
+--   - AWS Bedrock KB (external retrieval via stored procedure)
+--
+-- This script uses a RETAIL E-COMMERCE EXAMPLE. To adapt for your domain:
+--   - Replace table DDLs (Phase 2) with your own tables
+--   - Replace the CUSTOMER_FEEDBACK table (Phase 4) with your own text data
+--   - Replace the stored procedure KB_ID (Phase 7) with your Bedrock KB
+--   - Update agent_spec.json with your tool names and descriptions
+--
+-- Everything in Phases 6-9 is the REUSABLE PATTERN (External Access,
+-- Stored Procedure, Agent creation, Snowflake Intelligence registration).
 --
 -- Prerequisites:
 --   - ACCOUNTADMIN role (or equivalent privileges)
 --   - A warehouse (DEMO_WH used here - change if needed)
 --   - AWS setup completed (config/aws_setup.sh) - you need the KB_ID
---   - Data loaded into tables (Phase 4 of README)
 --   - Cortex Code CLI installed (for agent creation)
 --
 -- Usage:
@@ -17,8 +27,9 @@
 -------------------------------------------------------------------------------
 
 -- ============================================================================
--- PHASE 1: DATABASE, SCHEMA, WAREHOUSE
+-- PHASE 1: DATABASE, SCHEMA, WAREHOUSE (Customize for your domain)
 -- ============================================================================
+-- Replace RETAIL_AGENT_DB / AGENTS with your own database/schema names.
 
 USE ROLE ACCOUNTADMIN;
 
@@ -36,8 +47,10 @@ USE SCHEMA AGENTS;
 USE WAREHOUSE DEMO_WH;
 
 -- ============================================================================
--- PHASE 2: CREATE TABLES
+-- PHASE 2: CREATE TABLES (Domain-Specific — Replace with your own)
 -- ============================================================================
+-- These are EXAMPLE tables for the retail demo. Replace with your own
+-- domain tables (e.g., healthcare patients, financial trades, IoT sensors).
 
 -- Customers table (5000 rows)
 CREATE OR REPLACE TABLE CUSTOMERS (
@@ -120,7 +133,7 @@ CREATE OR REPLACE TABLE SUPPORT_TICKETS (
 );
 
 -- ============================================================================
--- PHASE 3: LOAD DATA INTO TABLES
+-- PHASE 3: LOAD DATA INTO TABLES (Domain-Specific)
 -- ============================================================================
 -- Option A: Load from local CSVs via Snowsight UI (Upload Data button)
 -- Option B: Load from a Snowflake stage
@@ -145,8 +158,10 @@ UNION ALL SELECT 'REVIEWS', COUNT(*) FROM REVIEWS
 UNION ALL SELECT 'SUPPORT_TICKETS', COUNT(*) FROM SUPPORT_TICKETS;
 
 -- ============================================================================
--- PHASE 4: CORTEX SEARCH - Combined Feedback Table + Search Service
+-- PHASE 4: CORTEX SEARCH SERVICE (Reusable Pattern — Swap your text data)
 -- ============================================================================
+-- Pattern: Combine text data into one table → enable change tracking → create
+-- Cortex Search Service. Replace CUSTOMER_FEEDBACK with your own text table.
 
 -- Create a combined CUSTOMER_FEEDBACK table (UNION of reviews + tickets)
 -- Cortex Search needs a single table with consistent schema and change tracking
@@ -211,9 +226,12 @@ AS (
 SHOW CORTEX SEARCH SERVICES IN SCHEMA RETAIL_AGENT_DB.AGENTS;
 
 -- ============================================================================
--- PHASE 5: SEMANTIC VIEW (Cortex Analyst)
+-- PHASE 5: SEMANTIC VIEW — Cortex Analyst (Reusable Pattern)
 -- [MANUAL] - Run via Cortex Code CLI, not SQL
 -- ============================================================================
+-- Pattern: Define a YAML semantic model over your structured tables →
+-- upload via CLI → Cortex Analyst converts natural language to SQL.
+-- Replace the table list below with your own tables.
 
 -- Option A: Use FastGen to auto-generate the semantic model YAML
 -- Run this in a Snowflake worksheet:
@@ -240,8 +258,13 @@ SELECT SYSTEM$CORTEX_ANALYST_FAST_GENERATION(
 SHOW SEMANTIC VIEWS IN SCHEMA RETAIL_AGENT_DB.AGENTS;
 
 -- ============================================================================
--- PHASE 6: EXTERNAL ACCESS (for AWS Bedrock KB)
+-- PHASE 6: EXTERNAL ACCESS INTEGRATION (Reusable Pattern — Any External API)
 -- ============================================================================
+-- This pattern works for ANY external API, not just Bedrock:
+--   1. Create GENERIC_STRING secrets for credentials
+--   2. Create a NETWORK RULE (EGRESS) for the endpoint
+--   3. Create an EXTERNAL ACCESS INTEGRATION binding them together
+-- For Bedrock KB, the endpoint is bedrock-agent-runtime.<region>.amazonaws.com
 
 -- Create secrets for AWS credentials
 -- IMPORTANT: Replace <YOUR_AWS_ACCESS_KEY_ID> and <YOUR_AWS_SECRET_ACCESS_KEY>
@@ -269,8 +292,11 @@ CREATE OR REPLACE EXTERNAL ACCESS INTEGRATION BEDROCK_KB_ACCESS
     ENABLED = TRUE;
 
 -- ============================================================================
--- PHASE 7: STORED PROCEDURE (Bedrock KB Search)
+-- PHASE 7: STORED PROCEDURE — Bedrock KB Search (Reusable Pattern)
 -- ============================================================================
+-- Pattern: Python SP with boto3 calls Bedrock retrieve() API.
+-- Adapt this for any external API: change the boto3 client and method call.
+-- The External Access Integration (Phase 6) handles auth + network access.
 
 -- IMPORTANT: Replace <YOUR_BEDROCK_KB_ID> with your actual KB ID from AWS setup
 CREATE OR REPLACE PROCEDURE SEARCH_RETAIL_KB(QUERY VARCHAR)
@@ -334,9 +360,11 @@ $$;
 -- CALL SEARCH_RETAIL_KB('top marketing campaigns by ROI');
 
 -- ============================================================================
--- PHASE 8: CREATE AGENT
+-- PHASE 8: CREATE CORTEX AGENT (Reusable Pattern)
 -- [MANUAL] - Run via Cortex Code CLI, not SQL
 -- ============================================================================
+-- Pattern: Define an agent spec JSON with tools → create via CLI.
+-- The agent orchestrates all 3 tool types (Analyst, Search, Generic).
 
 -- The agent is created using the Cortex Code CLI script because the agent spec
 -- JSON with $$ delimiters is complex to handle in raw SQL.
@@ -352,12 +380,15 @@ $$;
 --       --config-file /path/to/config/agent_spec.json
 
 -- ============================================================================
--- PHASE 9: AGENT PROFILE + SNOWFLAKE INTELLIGENCE
+-- PHASE 9: AGENT PROFILE + SNOWFLAKE INTELLIGENCE (Reusable Pattern)
 -- ============================================================================
+-- Pattern: Set agent profile → grant role → register in Snowflake Intelligence.
+-- This makes the agent available in Snowsight's conversational UI.
 
 -- Set agent profile for Snowflake Intelligence display
+-- Replace display_name and comment with your own agent identity
 ALTER AGENT RETAIL_AGENT_DB.AGENTS.RETAIL_INTELLIGENCE_AGENT
-    SET COMMENT = 'Retail 360 Intelligence Agent - Analyzes sales, customer feedback, marketing campaigns, and competitor data for an Indian e-commerce platform.',
+    SET COMMENT = 'Multi-tool Cortex Agent with Bedrock KB integration — retail e-commerce example.',
         PROFILE = '{"display_name": "Retail Intelligence Agent", "color": "blue"}';
 
 -- Grant Cortex Agent User role

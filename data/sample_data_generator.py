@@ -1,23 +1,26 @@
 """
-Sample Data Generator for Retail Intelligence Agent
-====================================================
+Sample Data Generator — Retail E-Commerce Example
+==================================================
+
+Example data generator for the retail demo included in this repo.
+Replace with your own data for a different domain.
 
 Generates 8 CSV files with realistic Indian e-commerce data:
-  - customers.csv          (5,000 rows)
-  - products.csv           (5,000 rows)
-  - transactions.csv       (10,000 rows)
-  - customer_events.csv    (5,000 rows)
-  - reviews.csv            (5,000 rows)
-  - support_tickets.csv    (5,000 rows)
-  - marketing_campaigns.csv       (500 rows) — for S3/Bedrock KB
-  - competitor_intelligence.csv   (500 rows) — for S3/Bedrock KB
+  - customers.csv          (5,000 rows)  → Snowflake table (Cortex Analyst)
+  - products.csv           (5,000 rows)  → Snowflake table (Cortex Analyst)
+  - transactions.csv       (10,000 rows) → Snowflake table (Cortex Analyst)
+  - customer_events.csv    (5,000 rows)  → Snowflake table (Cortex Analyst)
+  - reviews.csv            (5,000 rows)  → Snowflake table (Cortex Search)
+  - support_tickets.csv    (5,000 rows)  → Snowflake table (Cortex Search)
+  - marketing_campaigns.csv       (500 rows) → S3/Bedrock KB (generic tool)
+  - competitor_intelligence.csv   (500 rows) → S3/Bedrock KB (generic tool)
 
 Usage:
-    pip install faker pandas
     python sample_data_generator.py
 
 Output:
     All CSVs written to the current directory.
+    Uses only Python stdlib (csv, json, random, datetime) — no pip install needed.
 """
 
 import csv

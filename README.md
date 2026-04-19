@@ -1,128 +1,148 @@
-# Retail Intelligence Agent - Implementation Guide
+# Snowflake Cortex Agent with AWS Bedrock Knowledge Base
 
-A multi-tool Snowflake Cortex Agent for Indian e-commerce analytics, combining **Cortex Analyst** (structured data), **Cortex Search** (text search), and **AWS Bedrock Knowledge Base** (external KB) into a single conversational agent accessible from **Snowflake Intelligence**.
+Build a **multi-tool Snowflake Cortex Agent** that combines three tool types — **Cortex Analyst** (text-to-SQL), **Cortex Search** (vector search), and an **AWS Bedrock Knowledge Base** (external retrieval) — into a single conversational agent accessible from **Snowflake Intelligence**.
+
+This repo provides a complete, reproducible implementation using a retail e-commerce example. Swap in your own data for any domain.
 
 ---
 
-## Architecture
+## What You'll Build
 
 ```
-                          Snowflake Intelligence UI
-                                    |
-                    RETAIL_INTELLIGENCE_AGENT (Cortex Agent)
-                     /              |               \
-            Tool 1: Analyst    Tool 2: Search    Tool 3: Generic
-            (text-to-SQL)      (vector search)   (stored procedure)
-                 |                  |                    |
-          Semantic View     Cortex Search Svc     Python SP + boto3
-               |                  |                    |
-         4 Tables            CUSTOMER_FEEDBACK    AWS Bedrock KB
-         (structured)        (10K reviews+tickets) (AOSS + S3)
-                                                       |
-                                                  S3 CSVs
-                                                  (marketing +
-                                                   competitor data)
+                         Snowflake Intelligence UI
+                                   |
+                          Cortex Agent (orchestrator)
+                        /          |            \
+              Tool 1: Analyst   Tool 2: Search   Tool 3: Generic
+              (text-to-SQL)     (vector search)  (stored procedure)
+                   |                 |                   |
+            Semantic View    Cortex Search Svc    Python SP + boto3
+                   |                 |                   |
+            Structured         Unstructured        AWS Bedrock KB
+            Tables             Text Data           (AOSS + S3)
+                                                        |
+                                                   S3 Documents
+                                                   (CSV/PDF/TXT)
 ```
 
-### Three Tools
+### Three Tool Types in One Agent
 
-| Tool | Type | Data Source | Use Case |
-|------|------|-------------|----------|
-| `query_retail_data` | `cortex_analyst_text_to_sql` | Semantic View over 4 tables | Revenue, orders, customers, products, trends |
-| `search_customer_feedback` | `cortex_search` | 10K reviews + support tickets | Sentiment, complaints, feedback, CSAT |
-| `search_retail_kb` | `generic` (stored procedure) | AWS Bedrock KB (S3 CSVs) | Marketing campaigns, competitor intelligence |
+| Tool Type | Snowflake Feature | What It Does | Example Use Case |
+|-----------|-------------------|--------------|------------------|
+| `cortex_analyst_text_to_sql` | Cortex Analyst + Semantic View | Converts natural language to SQL over structured tables | "What is revenue by segment?" |
+| `cortex_search` | Cortex Search Service | Semantic vector search over unstructured text | "What are customers saying about quality?" |
+| `generic` | Stored Procedure (Python) | Calls any external API via External Access Integration | "What are the top campaigns by ROI?" (via AWS Bedrock KB) |
+
+---
+
+## Key Concepts
+
+### Snowflake Side
+- **Cortex Agent**: Orchestrates multiple tools to answer questions. Accepts an agent spec JSON defining tools, instructions, and sample questions.
+- **Cortex Analyst + Semantic View**: Text-to-SQL engine. A YAML semantic model defines tables, dimensions, facts, relationships, and verified queries.
+- **Cortex Search Service**: Vector search over text data. Requires a table with `CHANGE_TRACKING = TRUE` and an embedding model.
+- **External Access Integration**: Allows Snowflake stored procedures to call external APIs. Requires network rules (egress endpoints) and secrets (credentials).
+- **Snowflake Intelligence**: The conversational UI in Snowsight where agents are registered and accessible to end users.
+
+### AWS Side
+- **S3 Bucket**: Stores documents (CSVs, PDFs, text files) that feed the Knowledge Base.
+- **Bedrock Knowledge Base**: Managed RAG service that chunks, embeds, and indexes documents for retrieval.
+- **OpenSearch Serverless (AOSS)**: Vector store backend for the KB. Uses HNSW/faiss index with Amazon Titan Embed v2 (1024 dimensions).
+- **IAM Role**: Service role that Bedrock assumes to read S3 and write to AOSS.
+
+### The Integration Pattern
+```
+S3 (documents) → Bedrock KB (embed + index in AOSS) → Bedrock retrieve() API
+                                                            ↑
+Snowflake SP (boto3) → External Access Integration → Network Rule (egress)
+                            ↑                              ↑
+                     Secrets (AWS keys)              Allowed endpoints
+                            ↑
+                    Cortex Agent (generic tool) → Snowflake Intelligence
+```
+
+---
+
+## Included Example: Retail E-Commerce
+
+The repo ships with a working retail e-commerce example:
+
+| Data | Rows | Tool | Storage |
+|------|------|------|---------|
+| Customers, Products, Transactions, Events | 25K | Cortex Analyst (Semantic View) | Snowflake tables |
+| Reviews + Support Tickets | 10K | Cortex Search | Snowflake table → Search Service |
+| Marketing Campaigns, Competitor Intelligence | 1K | Bedrock KB (generic tool) | S3 → AOSS |
+
+To use your own domain, see [Bring Your Own Data](#bring-your-own-data) below.
 
 ---
 
 ## Prerequisites
 
 ### Snowflake
-- **Account** with Cortex Agent, Cortex Analyst, and Cortex Search enabled
-- **Role**: ACCOUNTADMIN (or role with CREATE DATABASE, CREATE INTEGRATION, CREATE AGENT privileges)
-- **Warehouse**: X-SMALL or larger
-- **Cortex Code CLI** installed ([docs](https://docs.snowflake.com/en/user-guide/cortex-code))
+- Account with **Cortex Agent**, **Cortex Analyst**, and **Cortex Search** enabled
+- Role: `ACCOUNTADMIN` (or equivalent privileges)
+- Warehouse: X-SMALL or larger
+- [Cortex Code CLI](https://docs.snowflake.com/en/user-guide/cortex-code) installed
 
 ### AWS
-- **AWS Account** with access to:
-  - Amazon Bedrock (us-west-2 region)
-  - Amazon S3
-  - OpenSearch Serverless (AOSS)
-  - IAM
-- **AWS CLI v2** installed and configured
-- **Python 3.11+** with `boto3` and `opensearch-py` packages
-- **IAM User** with programmatic access (access key + secret key)
-
-### Local
-- Python 3.11+
-- `pip install faker pandas boto3 opensearch-py`
+- AWS account with access to **Amazon Bedrock** (us-west-2), **S3**, **OpenSearch Serverless**, **IAM**
+- AWS CLI v2 installed and configured
+- Python 3.11+ with `boto3` and `opensearch-py`
+- IAM user with programmatic access (access key + secret key)
 
 ---
 
 ## Project Structure
 
 ```
-retail-intelligence-agent/
-├── README.md                        # This file
+├── README.md                           # This guide
 ├── config/
-│   ├── agent_spec.json              # Cortex Agent specification (3 tools, 30 questions)
-│   ├── semantic_model.yaml          # Semantic View YAML (4 tables, 3 relationships)
-│   ├── snowflake_setup.sql          # Complete Snowflake DDL script
-│   ├── aws_setup.sh                 # AWS infrastructure setup (S3, IAM, AOSS, Bedrock)
-│   ├── aws_iam_trust_policy.json    # IAM trust policy for Bedrock role
-│   └── aws_iam_user_policy.json     # IAM policy for user/role accessing KB
+│   ├── agent_spec.json                 # Agent spec: 3 tools, 30 sample questions (retail example)
+│   ├── semantic_model.yaml             # Semantic View YAML: 4 tables, 3 relationships (retail example)
+│   ├── snowflake_setup.sql             # Complete Snowflake DDL (10 phases)
+│   ├── aws_setup.sh                    # AWS automation: S3, IAM, AOSS, Bedrock KB
+│   ├── aws_iam_trust_policy.json       # IAM trust policy for Bedrock service role
+│   └── aws_iam_user_policy.json        # IAM policy for S3 + AOSS + Bedrock access
 ├── data/
-│   └── sample_data_generator.py     # Generates all 8 CSV datasets
-└── (generated after running data generator)
-    ├── customers.csv
-    ├── products.csv
-    ├── transactions.csv
-    ├── customer_events.csv
-    ├── reviews.csv
-    ├── support_tickets.csv
-    ├── marketing_campaigns.csv
-    └── competitor_intelligence.csv
+│   └── sample_data_generator.py        # Generates 8 CSVs (retail example data)
 ```
 
 ---
 
-## Implementation Steps
+## Implementation Guide
 
 ### Phase 1: Generate Sample Data
 
 ```bash
 cd data/
-pip install faker pandas
 python sample_data_generator.py
 ```
 
-This creates 8 CSV files:
+Generates 8 CSVs:
 - **6 for Snowflake tables**: customers, products, transactions, customer_events, reviews, support_tickets
-- **2 for AWS Bedrock KB**: marketing_campaigns, competitor_intelligence
-
-**Verify**: You should see 8 `.csv` files in the `data/` directory.
+- **2 for S3/Bedrock KB**: marketing_campaigns, competitor_intelligence
 
 ---
 
-### Phase 2: AWS Setup (Bedrock Knowledge Base)
+### Phase 2: Create AWS Bedrock Knowledge Base
 
-This phase creates the S3 bucket, IAM role, OpenSearch Serverless collection, and Bedrock Knowledge Base.
+This phase creates: S3 bucket → IAM role → AOSS collection (with security policies) → vector index → Bedrock KB → data source + sync.
 
-#### 2.1 Configure the script
+#### 2.1 Configure
 
-Edit `config/aws_setup.sh` and update the CONFIGURATION section:
-
+Edit `config/aws_setup.sh`:
 ```bash
-AWS_ACCOUNT_ID="<your-12-digit-aws-account-id>"
+AWS_ACCOUNT_ID="<your-12-digit-account-id>"
 AWS_REGION="us-west-2"
 AWS_IAM_USER="<your-iam-username>"
-S3_BUCKET_NAME="retail-agent-kb-data-<your-username>"
 ```
 
-Also update `config/aws_iam_trust_policy.json` and `config/aws_iam_user_policy.json`:
-- Replace all `<YOUR_AWS_ACCOUNT_ID>` with your actual AWS account ID
+Update `config/aws_iam_trust_policy.json` and `config/aws_iam_user_policy.json`:
+- Replace `<YOUR_AWS_ACCOUNT_ID>` with your account ID
 - Replace `<YOUR_S3_BUCKET_NAME>` with your bucket name
 
-#### 2.2 Run the setup
+#### 2.2 Run
 
 ```bash
 cd config/
@@ -130,78 +150,33 @@ chmod +x aws_setup.sh
 ./aws_setup.sh
 ```
 
-The script will:
-1. Create S3 bucket and upload CSVs
-2. Create IAM role with Bedrock trust policy
-3. Create AOSS collection with encryption, network, and data access policies
-4. Wait for AOSS to become ACTIVE (~2-5 minutes)
-5. Create vector index (1024 dimensions, HNSW/faiss, Titan Embed v2)
-6. Create Bedrock Knowledge Base
-7. Create S3 data source and start sync
-
-**IMPORTANT**: Note the **Knowledge Base ID** (e.g., `TM07QB27QC`) printed at the end. You need this for Phase 5.
+**Save the Knowledge Base ID** printed at the end — you'll need it in Phase 6.
 
 #### 2.3 Verify
 
 ```bash
-# Check KB status
-aws bedrock-agent get-knowledge-base --knowledge-base-id <YOUR_KB_ID>
-
-# Check sync status
-aws bedrock-agent list-ingestion-jobs \
-    --knowledge-base-id <YOUR_KB_ID> \
-    --data-source-id <YOUR_DS_ID>
-
-# Test retrieval
+aws bedrock-agent get-knowledge-base --knowledge-base-id <KB_ID>
 aws bedrock-agent-runtime retrieve \
-    --knowledge-base-id <YOUR_KB_ID> \
-    --retrieval-query '{"text": "top marketing campaigns by ROI"}' \
+    --knowledge-base-id <KB_ID> \
+    --retrieval-query '{"text": "marketing campaigns"}' \
     --retrieval-configuration '{"vectorSearchConfiguration": {"numberOfResults": 3}}'
 ```
 
 ---
 
-### Phase 3: Snowflake - Database, Tables, and Data
+### Phase 3: Create Snowflake Database, Tables, Load Data
 
-#### 3.1 Create database and tables
-
-Open `config/snowflake_setup.sql` in a Snowflake worksheet (Snowsight) and run **Phases 1-2** (lines 1-120):
+Run **Phases 1-3** from `config/snowflake_setup.sql` in a Snowflake worksheet:
 
 ```sql
--- Creates: RETAIL_AGENT_DB, AGENTS schema, DEMO_WH warehouse
--- Creates: CUSTOMERS, PRODUCTS, TRANSACTIONS, CUSTOMER_EVENTS, REVIEWS, SUPPORT_TICKETS tables
+-- Phase 1: Creates database, schema, warehouse
+-- Phase 2: Creates all 6 tables
+-- Phase 3: Load data (Snowsight UI upload, COPY INTO, or cross-database INSERT)
 ```
 
-#### 3.2 Load data
-
-**Option A** (Snowsight UI): Use the "Upload Data" button in the database objects panel to upload each CSV file to its corresponding table.
-
-**Option B** (COPY INTO from stage):
+**Verify**:
 ```sql
--- Create a stage
-CREATE OR REPLACE STAGE RETAIL_DATA_STAGE;
-
--- PUT files (from SnowSQL)
--- PUT file:///path/to/data/customers.csv @RETAIL_DATA_STAGE;
--- ... repeat for each CSV
-
--- COPY INTO each table
--- COPY INTO CUSTOMERS FROM @RETAIL_DATA_STAGE/customers.csv
---     FILE_FORMAT = (TYPE = CSV FIELD_OPTIONALLY_ENCLOSED_BY = '"' SKIP_HEADER = 1);
-```
-
-**Option C** (Copy from existing database, if CORTEX_TEST.RETAIL_360 exists):
-```sql
-INSERT INTO CUSTOMERS SELECT * FROM CORTEX_TEST.RETAIL_360.CUSTOMERS;
-INSERT INTO PRODUCTS SELECT * FROM CORTEX_TEST.RETAIL_360.PRODUCTS;
--- ... repeat for all 6 tables
-```
-
-#### 3.3 Verify
-
-Run the verification query from `snowflake_setup.sql` Phase 3:
-```sql
-SELECT 'CUSTOMERS' AS table_name, COUNT(*) AS row_count FROM CUSTOMERS
+SELECT 'CUSTOMERS' AS tbl, COUNT(*) FROM CUSTOMERS
 UNION ALL SELECT 'PRODUCTS', COUNT(*) FROM PRODUCTS
 UNION ALL SELECT 'TRANSACTIONS', COUNT(*) FROM TRANSACTIONS
 UNION ALL SELECT 'CUSTOMER_EVENTS', COUNT(*) FROM CUSTOMER_EVENTS
@@ -209,48 +184,36 @@ UNION ALL SELECT 'REVIEWS', COUNT(*) FROM REVIEWS
 UNION ALL SELECT 'SUPPORT_TICKETS', COUNT(*) FROM SUPPORT_TICKETS;
 ```
 
-Expected: CUSTOMERS=5000, PRODUCTS=5000, TRANSACTIONS=10000, CUSTOMER_EVENTS=5000, REVIEWS=5000, SUPPORT_TICKETS=5000.
-
 ---
 
-### Phase 4: Cortex Search Service
+### Phase 4: Create Cortex Search Service
 
 Run **Phase 4** from `config/snowflake_setup.sql`:
 
 ```sql
--- Creates CUSTOMER_FEEDBACK table (UNION ALL of reviews + tickets, 10K rows)
--- Enables change tracking
--- Creates CUSTOMER_FEEDBACK_SEARCH Cortex Search Service
+-- Creates combined CUSTOMER_FEEDBACK table (reviews + tickets)
+-- Enables CHANGE_TRACKING = TRUE
+-- Creates Cortex Search Service with snowflake-arctic-embed-m-v1.5
 ```
 
 **Verify**:
 ```sql
 SHOW CORTEX SEARCH SERVICES IN SCHEMA RETAIL_AGENT_DB.AGENTS;
--- Should show: CUSTOMER_FEEDBACK_SEARCH, indexing_state=ACTIVE, source_data_num_rows=10000
+-- indexing_state = ACTIVE, source_data_num_rows = 10000
 ```
-
-The search service uses `snowflake-arctic-embed-m-v1.5` for embeddings and has a 1-hour target lag.
 
 ---
 
-### Phase 5: Semantic View (Cortex Analyst)
+### Phase 5: Create Semantic View (Cortex Analyst)
 
-The semantic view defines the data model for natural language to SQL.
-
-#### Option A: Use the provided YAML
-
+**Option A** — Use the provided YAML:
 ```bash
-# From the Cortex Code CLI semantic-view skill directory:
-cd <cortex-code-install>/bundled_skills/semantic-view
-
+# From Cortex Code CLI semantic-view skill directory:
 SNOWFLAKE_CONNECTION_NAME=default uv run python scripts/upload_semantic_view_yaml.py \
-    /path/to/config/semantic_model.yaml \
-    RETAIL_AGENT_DB.AGENTS
+    /path/to/config/semantic_model.yaml RETAIL_AGENT_DB.AGENTS
 ```
 
-#### Option B: Generate with FastGen
-
-Run in a Snowflake worksheet:
+**Option B** — Auto-generate with FastGen:
 ```sql
 SELECT SYSTEM$CORTEX_ANALYST_FAST_GENERATION(
     TABLE_NAMES => ['RETAIL_AGENT_DB.AGENTS.CUSTOMERS',
@@ -261,67 +224,38 @@ SELECT SYSTEM$CORTEX_ANALYST_FAST_GENERATION(
 );
 ```
 
-Then extract the YAML from the result, save to a file, and upload using the command above.
+---
+
+### Phase 6: Create External Access Integration + Stored Procedure
+
+Run **Phases 6-7** from `config/snowflake_setup.sql`. Replace placeholders:
+
+- `<YOUR_AWS_ACCESS_KEY_ID>` — Your AWS access key
+- `<YOUR_AWS_SECRET_ACCESS_KEY>` — Your AWS secret key
+- `<YOUR_BEDROCK_KB_ID>` — The KB ID from Phase 2
+
+This creates:
+1. **Secrets** (GENERIC_STRING) — AWS credentials stored securely in Snowflake
+2. **Network Rule** (EGRESS) — Allows calls to `bedrock-agent-runtime.us-west-2.amazonaws.com`
+3. **External Access Integration** — Binds secrets + network rule
+4. **Stored Procedure** — Python SP using boto3 to call Bedrock `retrieve()` API
 
 **Verify**:
 ```sql
-SHOW SEMANTIC VIEWS IN SCHEMA RETAIL_AGENT_DB.AGENTS;
--- Should show: RETAIL_ANALYTICS_SV
+CALL SEARCH_RETAIL_KB('marketing campaigns');
+-- Returns JSON with retrieval results
 ```
 
 ---
 
-### Phase 6: External Access (AWS Bedrock Integration)
+### Phase 7: Create the Cortex Agent
 
-Run **Phase 6** from `config/snowflake_setup.sql`. You must replace placeholders:
+Review `config/agent_spec.json` — ensure `tool_resources` point to your objects:
+- `semantic_view`: your semantic view name
+- `search_service`: your Cortex Search Service name
+- `identifier`: your stored procedure name
 
-```sql
--- Replace <YOUR_AWS_ACCESS_KEY_ID> and <YOUR_AWS_SECRET_ACCESS_KEY>
-CREATE OR REPLACE SECRET AWS_ACCESS_KEY_ID
-    TYPE = GENERIC_STRING
-    SECRET_STRING = '<YOUR_AWS_ACCESS_KEY_ID>';
-
-CREATE OR REPLACE SECRET AWS_SECRET_ACCESS_KEY
-    TYPE = GENERIC_STRING
-    SECRET_STRING = '<YOUR_AWS_SECRET_ACCESS_KEY>';
-```
-
-Then create the network rule and external access integration (Phase 6 of the SQL script).
-
----
-
-### Phase 7: Stored Procedure (Bedrock KB Search)
-
-Run **Phase 7** from `config/snowflake_setup.sql`. Replace `<YOUR_BEDROCK_KB_ID>` with the KB ID from Phase 2.
-
-```sql
--- The procedure calls AWS Bedrock's retrieve() API via boto3
--- Uses GENERIC_STRING secrets for AWS credentials
--- Egress allowed via BEDROCK_KB_ACCESS integration
-```
-
-**Verify**:
-```sql
-CALL SEARCH_RETAIL_KB('top marketing campaigns by ROI');
--- Should return JSON with retrieval results from the KB
-```
-
----
-
-### Phase 8: Create the Agent
-
-The agent is created via the Cortex Code CLI (not raw SQL) because the agent spec JSON is complex.
-
-#### 8.1 Review agent_spec.json
-
-Review `config/agent_spec.json` to ensure:
-- `tool_resources.query_retail_data.semantic_view` points to your semantic view
-- `tool_resources.search_customer_feedback.search_service` points to your search service
-- `tool_resources.search_retail_kb.identifier` points to your stored procedure
-- All warehouse names match your warehouse
-
-#### 8.2 Create the agent
-
+Create via Cortex Code CLI:
 ```bash
 cd <cortex-code-install>/bundled_skills/cortex-agent
 
@@ -334,179 +268,131 @@ uv run python scripts/create_or_alter_agent.py create \
     --config-file /path/to/config/agent_spec.json
 ```
 
-#### 8.3 Test the agent
-
+**Test each tool**:
 ```bash
-# Test Cortex Analyst tool
 uv run python scripts/test_agent.py \
     --agent-name RETAIL_INTELLIGENCE_AGENT \
-    --database RETAIL_AGENT_DB \
-    --schema AGENTS \
-    --connection default \
-    --question "What is the total revenue by customer segment?"
+    --database RETAIL_AGENT_DB --schema AGENTS --connection default \
+    --question "What is total revenue by segment?"           # Cortex Analyst
 
-# Test Cortex Search tool
 uv run python scripts/test_agent.py \
     --agent-name RETAIL_INTELLIGENCE_AGENT \
-    --database RETAIL_AGENT_DB \
-    --schema AGENTS \
-    --connection default \
-    --question "What are customers saying about product quality?"
+    --database RETAIL_AGENT_DB --schema AGENTS --connection default \
+    --question "What are customers saying about quality?"    # Cortex Search
 
-# Test Bedrock KB tool
 uv run python scripts/test_agent.py \
     --agent-name RETAIL_INTELLIGENCE_AGENT \
-    --database RETAIL_AGENT_DB \
-    --schema AGENTS \
-    --connection default \
-    --question "What are the top 5 marketing campaigns by ROI?"
+    --database RETAIL_AGENT_DB --schema AGENTS --connection default \
+    --question "Top 5 marketing campaigns by ROI?"           # Bedrock KB
 ```
 
 ---
 
-### Phase 9: Register in Snowflake Intelligence
-
-Run **Phase 9** from `config/snowflake_setup.sql`:
+### Phase 8: Register in Snowflake Intelligence
 
 ```sql
--- Set profile for display in Snowflake Intelligence
+-- Set agent profile (display name + color in SI UI)
 ALTER AGENT RETAIL_AGENT_DB.AGENTS.RETAIL_INTELLIGENCE_AGENT
-    SET COMMENT = 'Retail 360 Intelligence Agent',
+    SET COMMENT = 'Multi-tool Cortex Agent with Bedrock KB integration',
         PROFILE = '{"display_name": "Retail Intelligence Agent", "color": "blue"}';
 
--- Grant required database role
+-- Grant required role
 GRANT DATABASE ROLE SNOWFLAKE.CORTEX_AGENT_USER TO ROLE ACCOUNTADMIN;
 
--- Register agent in Snowflake Intelligence
+-- Register in Snowflake Intelligence
 ALTER SNOWFLAKE INTELLIGENCE SNOWFLAKE_INTELLIGENCE_OBJECT_DEFAULT
     ADD AGENT RETAIL_AGENT_DB.AGENTS.RETAIL_INTELLIGENCE_AGENT;
-
--- Verify
-SHOW AGENTS IN SNOWFLAKE INTELLIGENCE SNOWFLAKE_INTELLIGENCE_OBJECT_DEFAULT;
 ```
 
-The agent is now accessible from **AI & ML > Snowflake Intelligence** in Snowsight.
+The agent is now available in **Snowsight > AI & ML > Snowflake Intelligence**.
 
 ---
 
-## Sample Questions
+## Bring Your Own Data
 
-The agent comes with 30 pre-configured sample questions:
+The retail example is fully swappable. To adapt for your own domain:
 
-### Individual Tool: Cortex Analyst (structured data)
-1. What is the total revenue by customer segment?
-2. Which product categories have the highest sales?
-3. Show me the monthly revenue trend for 2025
-4. Which payment methods are most popular?
-5. What is the average order value by sales channel?
-6. How many customers are in each segment?
-7. Which brands have the highest average product rating?
-8. Show me top 10 states by revenue
+### 1. Structured Data (Cortex Analyst)
+- Create your own tables in Snowflake
+- Generate a semantic model YAML using FastGen:
+  ```sql
+  SELECT SYSTEM$CORTEX_ANALYST_FAST_GENERATION(
+      TABLE_NAMES => ['DB.SCHEMA.YOUR_TABLE_1', 'DB.SCHEMA.YOUR_TABLE_2'],
+      SEMANTIC_MODEL_NAME => 'YOUR_MODEL_NAME'
+  );
+  ```
+- Upload via Cortex Code CLI
 
-### Individual Tool: Cortex Search (text search)
-9. What are customers saying about product quality?
-10. What are the most common support ticket issues?
-11. Show me negative reviews for electronics products
-12. What complaints do customers have about delivery?
-13. Are there any critical priority support tickets still open?
-14. What do customers say about product packaging?
+### 2. Unstructured Text (Cortex Search)
+- Create a table with a text column (e.g., descriptions, notes, documents)
+- Enable `CHANGE_TRACKING = TRUE`
+- Create a Cortex Search Service with `ON <text_column>` and `ATTRIBUTES` for filtering
 
-### Individual Tool: Marketing & Competitor KB
-15. What are the top 5 marketing campaigns by ROI?
-16. Compare our prices with Flipkart and Amazon India
-17. Which marketing channels have the best conversion rates?
-18. What is the competitor pricing trend for electronics?
-19. Which competitors have the highest market share in fashion?
-20. Compare delivery times across all competitors
+### 3. External Documents (Bedrock KB)
+- Upload your CSVs, PDFs, or text files to S3
+- The `aws_setup.sh` script works with any file types — Bedrock handles chunking and embedding
+- Update the stored procedure's KB ID
 
-### Cross-Tool (2 tools combined)
-21. Which products have high sales but poor reviews?
-22. Our electronics revenue is growing - what do customers think about our electronics?
-23. Which customer segments file the most support tickets?
-24. Show me high-value customers who left negative reviews
-25. Are our best-selling products in stock at competitors?
-26. How does our pricing compare to competitors for top-selling categories?
-
-### Cross-Platform (all 3 tools)
-27. Which marketing campaigns drove the most actual transactions?
-28. Give me a full 360 view of our electronics business
-29. What is the complete picture for the Fashion category - sales, reviews, and competition?
-30. Summarize our business health - revenue trends, customer satisfaction, and competitive position
+### 4. Agent Spec
+- Update `agent_spec.json`:
+  - Change tool names and descriptions to match your domain
+  - Update `tool_resources` to point to your objects
+  - Write domain-specific `instructions.orchestration`
+  - Add relevant `sample_questions`
 
 ---
 
 ## Troubleshooting
 
 ### AOSS Collection Not Becoming ACTIVE
-- AOSS collections can take 5-10 minutes to become ACTIVE
-- Check status: `aws opensearchserverless batch-get-collection --names <collection-name>`
-- Ensure encryption and network policies were created first
+- Takes 2-10 minutes. Check: `aws opensearchserverless batch-get-collection --names <name>`
+- Encryption and network policies must exist before creating the collection
 
 ### AOSS Vector Index Creation Fails
-- Ensure the data access policy includes both your IAM user AND the Bedrock role
-- Install opensearch-py: `pip install opensearch-py`
-- The index name must be `bedrock-knowledge-base-default-index` (Bedrock default)
+- Data access policy must include both your IAM user AND the Bedrock role
+- Index name must be `bedrock-knowledge-base-default-index` (Bedrock's expected default)
+- Install: `pip install opensearch-py`
 
 ### Bedrock KB Sync Fails
-- Verify the IAM role trust policy allows `bedrock.amazonaws.com`
-- Verify the role has S3 read access and AOSS access
-- Check sync status: `aws bedrock-agent list-ingestion-jobs --knowledge-base-id <KB_ID> --data-source-id <DS_ID>`
+- Verify IAM role trust policy allows `bedrock.amazonaws.com`
+- Verify role has S3 read + AOSS access
+- Check: `aws bedrock-agent list-ingestion-jobs --knowledge-base-id <KB_ID> --data-source-id <DS_ID>`
 
 ### Stored Procedure Returns Empty Results
-- Test the KB directly via AWS CLI first (Phase 2.3)
-- Verify the KB_ID in the stored procedure matches your actual KB
-- Check that the data source sync completed successfully
-
-### Semantic View Upload Fails
-- Ensure database and schema names in YAML match your actual objects
-- Verify all referenced tables exist and have data
-- Use `cortex reflect config/semantic_model.yaml` to validate the YAML
-
-### Agent Creation Fails
-- Ensure all tool_resources reference existing Snowflake objects
-- Verify the agent_spec.json is valid JSON
-- Check that the semantic view, search service, and stored procedure all exist
+- Test KB directly via AWS CLI first
+- Verify KB_ID in the procedure matches your actual KB
+- Ensure data source sync completed
 
 ### Cortex Search Not Returning Results
-- The CUSTOMER_FEEDBACK table must have `CHANGE_TRACKING = TRUE`
-- Wait for the search service to finish indexing (check `indexing_state` = ACTIVE)
-- Verify the table has data: `SELECT COUNT(*) FROM CUSTOMER_FEEDBACK`
+- Table must have `CHANGE_TRACKING = TRUE`
+- Wait for `indexing_state = ACTIVE`
+- Verify table has data
 
 ### Agent Not Visible in Snowflake Intelligence
-- Run: `SHOW AGENTS IN SNOWFLAKE INTELLIGENCE SNOWFLAKE_INTELLIGENCE_OBJECT_DEFAULT`
-- Ensure you ran the `ALTER SNOWFLAKE INTELLIGENCE ... ADD AGENT` command
-- Grant `SNOWFLAKE.CORTEX_AGENT_USER` to the role accessing Snowflake Intelligence
+- Run `SHOW AGENTS IN SNOWFLAKE INTELLIGENCE SNOWFLAKE_INTELLIGENCE_OBJECT_DEFAULT`
+- Ensure you ran `ALTER SNOWFLAKE INTELLIGENCE ... ADD AGENT`
+- Grant `SNOWFLAKE.CORTEX_AGENT_USER` to the accessing role
 
 ---
 
 ## Cleanup
 
-To remove all resources:
-
-**Snowflake** (uncomment the CLEANUP section in `config/snowflake_setup.sql`):
+**Snowflake** (see CLEANUP section in `config/snowflake_setup.sql`):
 ```sql
 DROP AGENT IF EXISTS RETAIL_AGENT_DB.AGENTS.RETAIL_INTELLIGENCE_AGENT;
--- ... (see full cleanup in snowflake_setup.sql)
+DROP CORTEX SEARCH SERVICE IF EXISTS RETAIL_AGENT_DB.AGENTS.CUSTOMER_FEEDBACK_SEARCH;
+DROP SEMANTIC VIEW IF EXISTS RETAIL_AGENT_DB.AGENTS.RETAIL_ANALYTICS_SV;
+DROP PROCEDURE IF EXISTS RETAIL_AGENT_DB.AGENTS.SEARCH_RETAIL_KB(VARCHAR);
+DROP INTEGRATION IF EXISTS BEDROCK_KB_ACCESS;
+-- ... see snowflake_setup.sql for full cleanup
 DROP DATABASE IF EXISTS RETAIL_AGENT_DB;
 ```
 
 **AWS**:
 ```bash
-# Delete KB
 aws bedrock-agent delete-knowledge-base --knowledge-base-id <KB_ID>
-
-# Delete AOSS collection
 aws opensearchserverless delete-collection --id <COLLECTION_ID>
-
-# Delete AOSS policies
-aws opensearchserverless delete-security-policy --name <collection>-enc --type encryption
-aws opensearchserverless delete-security-policy --name <collection>-net --type network
-aws opensearchserverless delete-access-policy --name <collection>-access --type data
-
-# Delete S3 bucket
 aws s3 rb s3://<bucket-name> --force
-
-# Delete IAM role
-aws iam delete-role-policy --role-name BedrockKBRetailRole --policy-name BedrockKBRetailPolicy
-aws iam delete-role --role-name BedrockKBRetailRole
+aws iam delete-role-policy --role-name BedrockKBRole --policy-name BedrockKBPolicy
+aws iam delete-role --role-name BedrockKBRole
 ```

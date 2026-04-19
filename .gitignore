@@ -2,10 +2,11 @@
 *.csv
 
 # Agent workspace (local Cortex Code state, not needed for implementation)
-RETAIL_AGENT_DB_AGENTS_RETAIL_INTELLIGENCE_AGENT/
+# Pattern: <DATABASE>_<SCHEMA>_<AGENT_NAME>/
+*_AGENTS_*/
 
 # Semantic view working directory (config/semantic_model.yaml is the canonical copy)
-semantic_view_retail/
+semantic_view_*/
 
 # OS files
 .DS_Store
